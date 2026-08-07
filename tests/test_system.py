@@ -25,7 +25,12 @@ from models import (  # noqa: E402
     Student,
     User,
 )
-from security import hash_password, verify_password  # noqa: E402
+from security import (  # noqa: E402
+    create_session_token,
+    decode_session_token,
+    hash_password,
+    verify_password,
+)
 from validators import (  # noqa: E402
     is_valid_email,
     is_valid_date,
@@ -241,3 +246,41 @@ def test_authorization_consultation_wrong_doctor(setup_db):
                                     treatment="", doctor_advice="", followup_date="",
                                     rest_recommended=False, rest_from="", rest_to="")
     assert not ok2
+
+
+# --- Persistent session (survives page refresh) ---
+def test_persistent_session_token(setup_db):
+    token = create_session_token(1, "admin", "admin")
+    payload = decode_session_token(token)
+    assert payload is not None
+    assert payload["user_id"] == 1
+    assert payload["username"] == "admin"
+    assert payload["role"] == "admin"
+
+
+def test_persistent_session_token_tampered(setup_db):
+    token = create_session_token(7, "student1", "student")
+    # Tamper with the token
+    tampered = token[:-1] + ("x" if token[-1] != "x" else "y")
+    assert decode_session_token(tampered) is None
+
+
+def test_persistent_session_token_expired(setup_db):
+    # Build an expired token manually by using a past expiry.
+    import base64
+    import hashlib
+    import hmac
+    import json
+    from datetime import datetime, timedelta
+    from config import SECRET_KEY
+
+    payload = json.dumps({
+        "user_id": 1,
+        "username": "admin",
+        "role": "admin",
+        "exp": (datetime.utcnow() - timedelta(hours=25)).isoformat(),
+    })
+    encoded = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("utf-8")
+    signature = hmac.new(SECRET_KEY.encode("utf-8"), encoded.encode("utf-8"), hashlib.sha256).hexdigest()
+    expired_token = f"{encoded}.{signature}"
+    assert decode_session_token(expired_token) is None

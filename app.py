@@ -8,7 +8,12 @@ import streamlit as st
 from auth import authenticate, logout, register_student
 from database import get_session, init_db
 from models import Department, Programme
-from security import check_session_timeout, is_authenticated, require_login
+from security import (
+    check_session_timeout,
+    is_authenticated,
+    require_login,
+    restore_session_from_token,
+)
 from theme import inject_theme, set_page_config
 
 import admin_ui
@@ -153,9 +158,22 @@ def main():
     inject_theme()
     _init_app()
     sm.init_session()
+    # Restore login from the persistent token if a page refresh reset session_state.
+    restore_session_from_token()
     check_session_timeout()
 
     current_page = st.session_state.get("current_page", "login")
+
+    # If authenticated via a restored persistent token but still on the login
+    # page, redirect to the appropriate role dashboard.
+    if is_authenticated() and current_page == "login":
+        st.session_state["current_page"] = {
+            "student": "student_dashboard",
+            "doctor": "doctor_dashboard",
+            "hod": "hod_dashboard",
+            "admin": "admin_dashboard",
+        }.get(st.session_state.get("role"), "login")
+        st.rerun()
 
     # Public pages
     if current_page == "login":
